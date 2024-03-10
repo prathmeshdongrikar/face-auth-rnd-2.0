@@ -1,18 +1,15 @@
 import 'dart:convert';
 import 'dart:developer';
 import 'dart:math' as math;
-
-import 'package:audioplayers/audioplayers.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:face_auth/authenticate_face/local_auth_db.dart';
 import 'package:face_auth/authenticate_face/scanning_animation/animated_view.dart';
-import 'package:face_auth/authenticate_face/user_details_view.dart';
-import 'package:face_auth/common/utils/custom_snackbar.dart';
+import 'package:face_auth/authenticate_face/home_screen.dart';
 import 'package:face_auth/common/utils/extensions/size_extension.dart';
 import 'package:face_auth/common/utils/extract_face_feature.dart';
 import 'package:face_auth/common/views/camera_view.dart';
 import 'package:face_auth/common/views/custom_button.dart';
 import 'package:face_auth/constants/theme.dart';
-import 'package:face_auth/model/user_model.dart';
+import 'package:face_auth/model/user_dto.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_face_api/face_api.dart' as regula;
 import 'package:flutter/material.dart';
@@ -26,7 +23,6 @@ class AuthenticateFaceView extends StatefulWidget {
 }
 
 class _AuthenticateFaceViewState extends State<AuthenticateFaceView> {
-  final AudioPlayer _audioPlayer = AudioPlayer();
   final FaceDetector _faceDetector = FaceDetector(
     options: FaceDetectorOptions(
       enableLandmarks: true,
@@ -37,30 +33,19 @@ class _AuthenticateFaceViewState extends State<AuthenticateFaceView> {
   var image1 = regula.MatchFacesImage();
   var image2 = regula.MatchFacesImage();
 
-  final TextEditingController _nameController = TextEditingController();
   String _similarity = "";
   bool _canAuthenticate = false;
   List<dynamic> users = [];
   bool userExists = false;
-  UserModel? loggingUser;
+  UserDto? loggingUser;
   bool isMatching = false;
   int trialNumber = 1;
 
   @override
   void dispose() {
     _faceDetector.close();
-    _audioPlayer.dispose();
     super.dispose();
   }
-
-  get _playScanningAudio => _audioPlayer
-    ..setReleaseMode(ReleaseMode.loop)
-    ..play(AssetSource("scan_beep.wav"));
-
-  get _playFailedAudio => _audioPlayer
-    ..stop()
-    ..setReleaseMode(ReleaseMode.release)
-    ..play(AssetSource("failed.mp3"));
 
   @override
   Widget build(BuildContext context) {
@@ -136,9 +121,8 @@ class _AuthenticateFaceViewState extends State<AuthenticateFaceView> {
                           if (_canAuthenticate)
                             CustomButton(
                               text: "Authenticate",
-                              onTap: () {
+                              onTap: () async {
                                 setState(() => isMatching = true);
-                                _playScanningAudio;
                                 _fetchUsersAndMatchFace();
                               },
                             ),
@@ -207,46 +191,51 @@ class _AuthenticateFaceViewState extends State<AuthenticateFaceView> {
     return sqr;
   }
 
-  _fetchUsersAndMatchFace() {
-    FirebaseFirestore.instance.collection("users").get().catchError((e) {
-      log("Getting User Error: $e");
-      setState(() => isMatching = false);
-      _playFailedAudio;
-      CustomSnackBar.errorSnackBar("Something went wrong. Please try again.");
-    }).then((snap) {
-      if (snap.docs.isNotEmpty) {
-        users.clear();
-        log(snap.docs.length.toString(), name: "Total Registered Users");
-        for (var doc in snap.docs) {
-          UserModel user = UserModel.fromJson(doc.data());
-          double similarity = compareFaces(_faceFeatures!, user.faceFeatures!);
-          if (similarity >= 0.8 && similarity <= 1.5) {
-            users.add([user, similarity]);
-          }
-        }
-        log(users.length.toString(), name: "Filtered Users");
-        setState(() {
-          //Sorts the users based on the similarity.
-          //More similar face is put first.
-          users.sort((a, b) => (((a.last as double) - 1).abs())
-              .compareTo(((b.last as double) - 1).abs()));
-        });
+  _fetchUsersAndMatchFace() async {
+    if (_faceFeatures == null) {
+      _showFailureDialog(
+        title: "Failed to Detect",
+        description: "Face not detected. Please try again.",
+      );
+      return;
+    }
 
-        _matchFaces();
-      } else {
-        _showFailureDialog(
-          title: "No Users Registered",
-          description:
-              "Make sure users are registered first before Authenticating.",
-        );
+    final allUsers = await LocalAuthDB.getUsersData();
+    print('Total Local Users : ${allUsers.length}');
+
+    if (allUsers.isNotEmpty) {
+      users.clear();
+      for (var user in allUsers) {
+        double similarity = compareFaces(_faceFeatures!, user.faceFeatures!);
+        if (similarity >= 0.8 && similarity <= 1.5) {
+          users.add([user, similarity]);
+        }
       }
-    });
+      setState(() {
+        //Sorts the users based on the similarity.
+        //More similar face is put first.
+        users.sort((a, b) => (((a.last as double) - 1).abs())
+            .compareTo(((b.last as double) - 1).abs()));
+      });
+
+      if (users.isNotEmpty) {
+        print(users[0].toString());
+      }
+
+      _matchFaces();
+    } else {
+      _showFailureDialog(
+        title: "No Users Registered",
+        description:
+            "Make sure users are registered first before Authenticating.",
+      );
+    }
   }
 
   _matchFaces() async {
     bool faceMatched = false;
     for (List user in users) {
-      image1.bitmap = (user.first as UserModel).image;
+      image1.bitmap = (user.first as UserDto).image;
       image1.imageType = regula.ImageType.PRINTED;
 
       //Face comparing logic.
@@ -273,144 +262,55 @@ class _AuthenticateFaceViewState extends State<AuthenticateFaceView> {
           faceMatched = false;
         }
       });
-      if (faceMatched) {
-        _audioPlayer
-          ..stop()
-          ..setReleaseMode(ReleaseMode.release)
-          ..play(AssetSource("success.mp3"));
 
+      if (faceMatched) {
         setState(() {
-          trialNumber = 1;
           isMatching = false;
         });
 
         if (mounted) {
           Navigator.of(context).push(
             MaterialPageRoute(
-              builder: (context) => UserDetailsView(user: loggingUser!),
+              builder: (context) => HomeScreen(user: loggingUser!),
             ),
           );
         }
         break;
       }
     }
+
     if (!faceMatched) {
-      if (trialNumber == 4) {
-        setState(() => trialNumber = 1);
-        _showFailureDialog(
-          title: "Redeem Failed",
-          description: "Face doesn't match. Please try again.",
-        );
-      } else if (trialNumber == 3) {
-        //After 2 trials if the face doesn't match automatically, the registered name prompt
-        //will be shown. After entering the name the face registered with the entered name will
-        //be fetched and will try to match it with the to be authenticated face.
-        //If the faces match, Viola!. Else it means the user is not registered yet.
-        _audioPlayer.stop();
-        setState(() {
-          isMatching = false;
-          trialNumber++;
-        });
-        showDialog(
-            context: context,
-            builder: (context) {
-              return AlertDialog(
-                title: const Text("Enter Name"),
-                content: TextFormField(
-                  controller: _nameController,
-                  cursorColor: accentColor,
-                  decoration: InputDecoration(
-                    enabledBorder: OutlineInputBorder(
-                      borderSide: const BorderSide(
-                        width: 2,
-                        color: accentColor,
-                      ),
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                    focusedBorder: OutlineInputBorder(
-                      borderSide: const BorderSide(
-                        width: 2,
-                        color: accentColor,
-                      ),
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                  ),
-                ),
-                actions: [
-                  TextButton(
-                    onPressed: () {
-                      if (_nameController.text.trim().isEmpty) {
-                        CustomSnackBar.errorSnackBar("Enter a name to proceed");
-                      } else {
-                        Navigator.of(context).pop();
-                        setState(() => isMatching = true);
-                        _playScanningAudio;
-                        _fetchUserByName(_nameController.text.trim());
-                      }
-                    },
-                    child: const Text(
-                      "Done",
-                      style: TextStyle(
-                        color: accentColor,
-                      ),
-                    ),
-                  )
-                ],
-              );
-            });
-      } else {
-        setState(() => trialNumber++);
-        _showFailureDialog(
-          title: "Redeem Failed",
-          description: "Face doesn't match. Please try again.",
-        );
-      }
+      _showFailureDialog(
+        title: "Failed to Recognize",
+        description: "Face doesn't match. Please try again.",
+      );
     }
-  }
-
-  _fetchUserByName(String orgID) {
-    FirebaseFirestore.instance
-        .collection("users")
-        .where("organizationId", isEqualTo: orgID)
-        .get()
-        .catchError((e) {
-      log("Getting User Error: $e");
-      setState(() => isMatching = false);
-      _playFailedAudio;
-      CustomSnackBar.errorSnackBar("Something went wrong. Please try again.");
-    }).then((snap) {
-      if (snap.docs.isNotEmpty) {
-        users.clear();
-
-        for (var doc in snap.docs) {
-          setState(() {
-            users.add([UserModel.fromJson(doc.data()), 1]);
-          });
-        }
-        _matchFaces();
-      } else {
-        setState(() => trialNumber = 1);
-        _showFailureDialog(
-          title: "User Not Found",
-          description:
-              "User is not registered yet. Register first to authenticate.",
-        );
-      }
-    });
   }
 
   _showFailureDialog({
     required String title,
     required String description,
   }) {
-    _playFailedAudio;
     setState(() => isMatching = false);
     showDialog(
       context: context,
       builder: (context) {
         return AlertDialog(
-          title: Text(title),
-          content: Text(description),
+          backgroundColor: Colors.white,
+          title: Text(
+            title,
+            style: const TextStyle(
+              color: Colors.black,
+              fontSize: 16,
+            ),
+          ),
+          content: Text(
+            description,
+            style: const TextStyle(
+              color: Colors.black,
+              fontSize: 14,
+            ),
+          ),
           actions: [
             TextButton(
               onPressed: () {
@@ -419,7 +319,7 @@ class _AuthenticateFaceViewState extends State<AuthenticateFaceView> {
               child: const Text(
                 "Ok",
                 style: TextStyle(
-                  color: accentColor,
+                  color: Colors.black,
                 ),
               ),
             )

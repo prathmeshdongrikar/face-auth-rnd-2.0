@@ -1,23 +1,33 @@
+
+import 'dart:io';
+
 import 'package:face_auth/authenticate_face/authenticate_face_view.dart';
 import 'package:face_auth/common/views/custom_button.dart';
 import 'package:face_auth/common/utils/custom_snackbar.dart';
 import 'package:face_auth/common/utils/extensions/size_extension.dart';
 import 'package:face_auth/common/utils/screen_size_util.dart';
 import 'package:face_auth/constants/theme.dart';
-import 'package:face_auth/register_face/enter_password_view.dart';
+import 'package:face_auth/register_face/register_face_view.dart';
 import 'package:flutter/material.dart';
-import 'package:firebase_core/firebase_core.dart';
+import 'package:hive_flutter/hive_flutter.dart';
+import 'package:path_provider/path_provider.dart';
 
-void main() {
+import 'model/user_dto.dart';
+
+void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  Firebase.initializeApp();
+  final Directory appDocumentDir = await getApplicationDocumentsDirectory();
+  Hive.init(appDocumentDir.path);
+  Hive.registerAdapter(UserDtoAdapter());
+  Hive.registerAdapter(FaceFeaturesAdapter());
+  Hive.registerAdapter(PointsAdapter());
+
   runApp(const MyApp());
 }
 
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
 
-  // This widget is the root of your application.
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
@@ -44,13 +54,13 @@ class MyApp extends StatelessWidget {
           ),
         ),
       ),
-      home: const Home(),
+      home: const FaceAuthOption(),
     );
   }
 }
 
-class Home extends StatelessWidget {
-  const Home({Key? key}) : super(key: key);
+class FaceAuthOption extends StatelessWidget {
+  const FaceAuthOption({Key? key}) : super(key: key);
 
   @override
   Widget build(BuildContext context) {
@@ -85,7 +95,7 @@ class Home extends StatelessWidget {
               onTap: () {
                 Navigator.of(context).push(
                   MaterialPageRoute(
-                    builder: (context) => EnterPasswordView(),
+                    builder: (context) => const RegisterFaceView(),
                   ),
                 );
               },

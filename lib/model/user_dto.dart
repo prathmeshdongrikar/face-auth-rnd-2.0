@@ -1,49 +1,57 @@
-class UserModel {
+import 'package:hive_flutter/hive_flutter.dart';
+part 'user_dto.g.dart';
+
+@HiveType(typeId: 0)
+class UserDto {
+  @HiveField(0)
   String? id;
+  @HiveField(1)
   String? name;
+  @HiveField(2)
   String? image;
+  @HiveField(3)
   FaceFeatures? faceFeatures;
-  int? registeredOn;
 
-  UserModel({
-    this.id,
-    this.name,
-    this.image,
-    this.faceFeatures,
-    this.registeredOn,
-  });
+  UserDto({this.name, this.faceFeatures, this.id, this.image});
 
-  factory UserModel.fromJson(Map<String, dynamic> json) {
-    return UserModel(
-      id: json['id'],
-      name: json['name'],
-      image: json['image'],
-      faceFeatures: FaceFeatures.fromJson(json["faceFeatures"]),
-      registeredOn: json['registeredOn'],
-    );
+  UserDto.fromJson(Map<String, dynamic> json) {
+    name = json['name'];
+    id = json['id'];
+    image = json['image'];
+    faceFeatures = json['faceFeatures'];
   }
 
   Map<String, dynamic> toJson() {
-    return {
-      'id': id,
-      'name': name,
-      'image': image,
-      'faceFeatures': faceFeatures?.toJson() ?? {},
-      'registeredOn': registeredOn,
-    };
+    final Map<String, dynamic> data = <String, dynamic>{};
+    data['id'] = id;
+    data['name'] = name;
+    data['image'] = image;
+    data['faceFeatures'] = faceFeatures;
+    return data;
   }
 }
 
+@HiveType(typeId: 1)
 class FaceFeatures {
+  @HiveField(0)
   Points? rightEar;
+  @HiveField(1)
   Points? leftEar;
+  @HiveField(2)
   Points? rightEye;
+  @HiveField(3)
   Points? leftEye;
+  @HiveField(4)
   Points? rightCheek;
+  @HiveField(5)
   Points? leftCheek;
+  @HiveField(6)
   Points? rightMouth;
+  @HiveField(7)
   Points? leftMouth;
+  @HiveField(8)
   Points? noseBase;
+  @HiveField(9)
   Points? bottomMouth;
 
   FaceFeatures({
@@ -86,8 +94,11 @@ class FaceFeatures {
       };
 }
 
+@HiveType(typeId: 2)
 class Points {
+  @HiveField(0)
   int? x;
+  @HiveField(1)
   int? y;
 
   Points({
